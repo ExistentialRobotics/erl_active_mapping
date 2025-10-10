@@ -149,6 +149,10 @@ TEST(FrontierBased, Grid2D) {
     constexpr Dtype map_resolution = 0.05f;
     constexpr Dtype min_coverage_ratio = 0.95f;
     constexpr int canvas_size = 1000;
+    constexpr bool save_figs = false;
+
+    std::filesystem::path img_dir = test_output_dir / "images";
+    std::filesystem::create_directories(img_dir);
 
     std::shared_ptr<Agent::Setting> agent_setting = std::make_shared<Agent::Setting>();
     std::string agent_setting_path = gtest_src_dir / "../../config/frontier_based_grid_2d.yaml";
@@ -188,8 +192,8 @@ TEST(FrontierBased, Grid2D) {
         cv::resize(cv_map_img, cv_map_img, cv::Size(), scale, scale, cv::INTER_NEAREST);
     }
 
-    cv::imshow("map_img", cv_map_img);
-    cv::waitKey(1);
+    // cv::imshow("map_img", cv_map_img);
+    // cv::waitKey(1);
 
     const Dtype max_observable_area = map_img.cast<Dtype>().sum() / 255.0f *
                                       grid_map_info->Resolution(0) * grid_map_info->Resolution(1);
@@ -347,6 +351,12 @@ TEST(FrontierBased, Grid2D) {
 
         cv::imshow("exploration", canvas);
         cv::waitKey(1);
+
+        if (save_figs) {
+            std::string img_path =
+                (img_dir / fmt::format("frontier_grid_{:04d}.png", simulator.GetStep())).string();
+            cv::imwrite(img_path, canvas);
+        }
     }
 
     cv::waitKey();

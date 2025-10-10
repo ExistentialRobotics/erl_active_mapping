@@ -4,24 +4,33 @@
 [![ROS1](https://img.shields.io/badge/ROS1-noetic-blue)](http://wiki.ros.org/)
 [![ROS2](https://img.shields.io/badge/ROS2-humble-blue)](https://docs.ros.org/)
 
-`erl_active_mapping` provides algorithms and agents for active exploration and mapping. The package includes a small, reusable agent interface and a frontier-based 2D grid agent that integrates log-odd occupancy maps, environment / motion models, and A* planning to generate exploration goals and paths.
+`erl_active_mapping` provides algorithms and agents for active exploration and mapping. The package includes a small,
+reusable agent interface and a frontier-based 2D grid agent that integrates log-odd occupancy maps, environment / motion
+models, and A* planning to generate exploration goals and paths.
+
+![](assets/demo_frontier_grid_2d.gif)
 
 ## Highlights
 
 - Templated `AgentBase` interface for implementing exploration agents (`include/erl_active_mapping/agent_base.hpp`).
-- Frontier-based 2D grid agent that extracts frontiers from a log-odd occupancy map and plans to frontier goals (`include/erl_active_mapping/frontier_based_grid_2d.hpp`).
+- Frontier-based 2D grid agent that extracts frontiers from a log-odd occupancy map and plans to frontier goals (
+  `include/erl_active_mapping/frontier_based_grid_2d.hpp`).
 - YAML-configurable settings for frontier extraction, planning strategies and environment parameters.
-- Integrations with other erl packages: `erl_geometry::LogOddMap2D`, `erl_env::Environment2D`, and `erl_path_planning::astar`.
+- Integrations with other erl packages: `erl_geometry::LogOddMap2D`, `erl_env::Environment2D`, and
+  `erl_path_planning::astar`.
 - Python bindings (pybind11) for easy experimentation and scripting (`python/`) (TODO).
 
 ## Public headers
 
-- `include/erl_active_mapping/agent_base.hpp` — Templated base class describing the agent API (Step, Plan, RandomPlan, ShouldReplan).
-- `include/erl_active_mapping/frontier_based_grid_2d.hpp` — Frontier-based grid agent implementation, settings and helper types.
+- `include/erl_active_mapping/agent_base.hpp` — Templated base class describing the agent API (Step, Plan, RandomPlan,
+  ShouldReplan).
+- `include/erl_active_mapping/frontier_based_grid_2d.hpp` — Frontier-based grid agent implementation, settings and
+  helper types.
 
 ## Getting started
 
-Create a workspace and add the package to `src` (example follows the standard CMake/ROS layout used across the erl_* family):
+Create a workspace and add the package to `src` (example follows the standard CMake/ROS layout used across the erl_*
+family):
 
 ```bash
 cd <your_workspace>
@@ -77,7 +86,8 @@ source install/setup.bash
 
 ### Python bindings
 
-This package includes Python bindings (pybind11). There is a Python package layout under `python/` and packaging metadata (`setup.py`, `pyproject.toml`). To install into your active Python environment (pipenv, venv, or system):
+This package includes Python bindings (pybind11). There is a Python package layout under `python/` and packaging
+metadata (`setup.py`, `pyproject.toml`). To install into your active Python environment (pipenv, venv, or system):
 
 ```bash
 cd <your_workspace>
@@ -86,21 +96,24 @@ pip install . --user
 # or using pipenv/venv: pip install .
 ```
 
-After installation you should be able to import the module in Python:
+After installation, you should be able to import the module in Python:
 
 ```python
 import erl_active_mapping
 # The bindings expose the frontier-based agent and helper utilities for scripting
 ```
 
-Refer to `python/binding/pybind11_erl_active_mapping.cpp` and `python/erl_active_mapping/__init__.py` for the exposed symbols and examples.
+Refer to `python/binding/pybind11_erl_active_mapping.cpp` and `python/erl_active_mapping/__init__.py` for the exposed
+symbols and examples.
 
 ## Example configs & data
 
 - `config/frontier_based_grid_2d.yaml` — example YAML settings for the frontier-based grid agent.
-- `data/house_expo_room_1451.json` and `data/house_expo_room_1451.csv` — small example datasets used in experiments and tests.
+- `data/house_expo_room_1451.json` and `data/house_expo_room_1451.csv` — small example datasets used in experiments and
+  tests.
 
-Use the YAML config to customize planner behavior (plan strategy, replan strategy, goal tolerance, sampling parameters, etc.).
+Use the YAML config to customize planner behavior (plan strategy, replan strategy, goal tolerance, sampling parameters,
+etc.).
 
 ## API (quick overview)
 
@@ -109,11 +122,14 @@ Use the YAML config to customize planner behavior (plan strategy, replan strateg
     - `Plan(state)`: generate a plan based on the current state.
     - `RandomPlan(state)`: generate a random plan based on the current state.
     - `ShouldReplan(state)`: determine if a replan is needed based on the current state.
-- `frontier_based::AgentFrontierBasedGrid2D<Dtype, Observation>`: implements frontier extraction from a `LogOddMap2D`, goal sampling, and A*-based planning to frontiers. Exposes `Setting` and `Frontier` types for configuration and inspection.
+- `frontier_based::AgentFrontierBasedGrid2D<Dtype, Observation>`: implements frontier extraction from a `LogOddMap2D`,
+  goal sampling, and A*-based planning to frontiers. Exposes `Setting` and `Frontier` types for configuration and
+  inspection.
 
 ## Contributing
 
-Contributions welcome. Please follow the repository code style (files include `.clang-format`) and add tests where helpful. See `CMakeLists.txt` and Python packaging files for how targets and bindings are built.
+Contributions welcome. Please follow the repository code style (files include `.clang-format`) and add tests where
+helpful. See `CMakeLists.txt` and Python packaging files for how targets and bindings are built.
 
 ## License
 
