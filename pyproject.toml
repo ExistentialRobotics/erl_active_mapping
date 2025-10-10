@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools", "wheel", "toml"]
+
+[tool.black]
+line-length = 120
+
+[erl]
+description = "Python bindings for erl_active_mapping"
+python_pkg_name = "erl_active_mapping"
+pybind_module_name = "pyerl_active_mapping"
+erl_dependencies = ["erl_cmake_tools", "erl_common", "erl_geometry", "erl_env", "erl_path_planning"]
+build_type = "Release"
+version = "0.1.0"
+author = "Zhirui Dai"
+author_email = "zhdai@ucsd.edu"
+entry_points = { console_scripts = [] }
+license = "MIT"

@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+    <name>erl_active_mapping</name>
+    <version>0.1.0</version>
+    <description>erl_active_mapping is a C++ library of active mapping algorithms</description>
+    <author email="daizhirui@hotmail.com">Zhirui Dai</author>
+    <maintainer email="daizhirui@hotmail.com">Zhirui Dai</maintainer>
+    <license>MIT</license>
+    <url type="repository">https://github.com/ExistentialRobotics/erl_active_mapping.git</url>
+
+    <buildtool_depend condition="$ROS_VERSION == 1">catkin</buildtool_depend>
+    <buildtool_depend condition="$ROS_VERSION == 2">ament_cmake</buildtool_depend>
+    <buildtool_depend>erl_cmake_tools</buildtool_depend>    <!-- required -->
+
+    <build_depend>erl_common</build_depend>
+    <build_depend>erl_geometry</build_depend>
+    <build_depend>erl_env</build_depend>
+    <build_depend>erl_path_planning</build_depend>
+
+    <build_export_depend>erl_common</build_export_depend>
+    <build_export_depend>erl_geometry</build_export_depend>
+    <build_export_depend>erl_env</build_export_depend>
+    <build_export_depend>erl_path_planning</build_export_depend>
+
+    <export>
+        <build_type condition="$ROS_VERSION == 2">ament_cmake</build_type>
+    </export>
+
+</package>

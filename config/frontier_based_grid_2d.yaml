@@ -1,0 +1,44 @@
+plan_strategy: kMaxScorePathLengthRatio  # kMaxScore, kMinPathLength, kMaxScorePathLengthRatio
+replan_strategy: kGoalReached
+frontier_seen_ratio: 0.8
+goal_tolerance: 0.1  # in meters, used when replan_strategy is kGoalSeen
+check_possible_collision: true
+collision_check_window_size: 10  # number of waypoints to check for collision
+log_odd_map:
+    sensor_min_range: 0.01
+    sensor_max_range: 30
+    log_odd_hit: 0.9
+    log_odd_miss: -0.2
+    max_log_odd: 50
+    min_log_odd: -8
+    threshold_occupied: 0.55
+    threshold_free: 0.49
+    use_cross_kernel: true
+    kernel_size: 3
+    num_iters_for_cleaned_mask: 2
+    filter_obstacles_in_cleaned_mask: false
+frontier:
+    clean_at_first: true
+    approx_iters: 1
+    min_size: 20
+    max_num_frontiers: 10
+    sample_goals: true
+    sampling_ratio: 0.1
+    max_num_goals_per_frontier: 5
+env:
+    motions: [ ]
+    grid_stride: 1
+    obstacle_threshold: 1
+    add_map_cost: false
+    map_cost_factor: 1.0
+    robot_metric_contour:
+        - [ 0.05, 0.05, -0.05, -0.05 ]
+        - [ 0.05, -0.05, -0.05, 0.05 ]
+env_max_step_size: 1
+env_allow_diagonal: true
+astar:
+    eps: 1.1
+    max_num_iterations: -1
+    log: false
+    reopen_inconsistent: false
+max_random_planning_trials: 100
