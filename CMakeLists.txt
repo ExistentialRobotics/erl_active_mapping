@@ -11,7 +11,7 @@ endif ()
 erl_project_setup(ERL_PACKAGES erl_common erl_geometry erl_env erl_path_planning)
 
 erl_setup_ros(LIBRARIES ${PROJECT_NAME})
-erl_config_qt6(Core)
+
 #########
 # BUILD #
 #########
@@ -27,7 +27,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
                            $<BUILD_INTERFACE:${${PROJECT_NAME}_INCLUDE_DIR}>
                            $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
 message(STATUS ${Qt6_LIBRARIES})
-erl_target_dependencies(${PROJECT_NAME} PRIVATE ${Qt6_LIBRARIES})
+erl_target_dependencies(${PROJECT_NAME})
 erl_dump_compile_definitions(include/${PROJECT_NAME}/compile_definitions.hpp)
 
 ###################

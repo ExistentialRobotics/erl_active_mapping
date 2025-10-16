@@ -27,9 +27,8 @@ private:
     Dtype m_dist_ = 0;
     Dtype m_observed_area_ = 0;
     Dtype m_ratio_ = 0;
-    AgentState m_agent_state_{};
-    long m_step_ = 0;
-    long m_wp_idx_ = 0;
+    std::size_t m_step_ = 0;
+    std::size_t m_wp_idx_ = 0;
     Path m_path_{};
 
 public:
@@ -82,44 +81,36 @@ public:
     bool
     Step() {
         if (m_step_++) {
-            auto p = m_path_.col(m_wp_idx_++);
-            Eigen::Vector2<Dtype> diff = p - m_sensor_pose_.col(2);
+            auto wp = m_path_[m_wp_idx_++];
+            Eigen::Vector2<Dtype> diff = wp.col(2) - m_sensor_pose_.col(2);
             m_dist_ += diff.norm();
-            Dtype theta = std::atan2(diff[1], diff[0]);
-            Dtype sin_theta = std::sin(theta);
-            Dtype cos_theta = std::cos(theta);
-            // clang-format off
-            m_sensor_pose_ << cos_theta, -sin_theta, p[0],
-                              sin_theta,  cos_theta, p[1];
-            // clang-format on
-            m_agent_state_.metric = p;
+            m_sensor_pose_ = wp;
             Eigen::Matrix2X<Dtype> observation = m_sensor_callback_(m_sensor_pose_);
             m_agent_->Step(m_sensor_pose_, observation);
-            if (m_wp_idx_ >= m_path_.cols()) {
-                m_path_ = m_agent_->Plan(m_agent_state_);
+            if (m_wp_idx_ >= m_path_.size()) {
+                m_path_ = m_agent_->Plan(m_sensor_pose_);
                 m_wp_idx_ = 0;
             }
         } else {
-            m_agent_state_.metric = m_sensor_pose_.col(2);
             Eigen::Matrix2X<Dtype> observation = m_sensor_callback_(m_sensor_pose_);
             m_agent_->Step(m_sensor_pose_, observation);
-            m_path_ = m_agent_->Plan(m_agent_state_);
+            m_path_ = m_agent_->Plan(m_sensor_pose_);
             m_wp_idx_ = 0;
         }
 
         m_observed_area_ = ComputeObservedArea();
 
-        if (m_wp_idx_ > 0 && m_agent_->ShouldReplan(m_agent_state_)) {
+        if (m_wp_idx_ > 0 && m_agent_->ShouldReplan(m_sensor_pose_)) {
             // try re-plan only when the robot is moving.
-            Path new_path = m_agent_->Plan(m_agent_state_);
-            ERL_INFO("New path with {} waypoints at step {}.", new_path.cols(), m_step_);
+            Path new_path = m_agent_->Plan(m_sensor_pose_);
+            ERL_INFO("New path with {} waypoints at step {}.", new_path.size(), m_step_);
             m_path_ = std::move(new_path);
             m_wp_idx_ = 0;
         }
 
         m_ratio_ = m_observed_area_ / m_max_observable_area_;
 
-        return m_ratio_ < m_min_coverage_ratio_ && m_path_.cols() > 0;
+        return m_ratio_ < m_min_coverage_ratio_ && !m_path_.empty();
     }
 
     [[nodiscard]] Dtype
@@ -134,6 +125,8 @@ public:
 
 TEST(FrontierBased, Grid2D) {
     GTEST_PREPARE_OUTPUT_DIR();
+
+    erl::common::SetGlobalRandomSeed(0);
 
     using Dtype = float;
     using Simulator = SimulatorFrontier2D<Dtype>;
@@ -177,8 +170,6 @@ TEST(FrontierBased, Grid2D) {
         map_max,
         Vector2(map_resolution, map_resolution),
         Eigen::Vector2i::Constant(10));  // 10 cells padding
-    // map_min = grid_map_info->Min();
-    // map_max = grid_map_info->Max();
 
     Eigen::MatrixX8U map_img = house_expo_map.GetMeterSpace()->GenerateMapImage(
         *grid_map_info->CastSharedPtr<double>(),
@@ -191,9 +182,6 @@ TEST(FrontierBased, Grid2D) {
         scale = static_cast<Dtype>(canvas_size) / static_cast<Dtype>(cv_map_img.rows);
         cv::resize(cv_map_img, cv_map_img, cv::Size(), scale, scale, cv::INTER_NEAREST);
     }
-
-    // cv::imshow("map_img", cv_map_img);
-    // cv::waitKey(1);
 
     const Dtype max_observable_area = map_img.cast<Dtype>().sum() / 255.0f *
                                       grid_map_info->Resolution(0) * grid_map_info->Resolution(1);
@@ -260,9 +248,9 @@ TEST(FrontierBased, Grid2D) {
 
         if (const long best_frontier_idx = agent->GetBestFrontierIndex(); best_frontier_idx >= 0) {
             auto frontier = agent->GetFrontiers()[best_frontier_idx];
-            for (const auto &p: frontier.points) {
-                Eigen::Vector2i pixel = grid_map_info->MeterToGridForPoint(p.metric);
-                cv::circle(img, cv::Point(pixel[1], pixel[0]), 1, cv::Scalar(0, 255, 0), -1);
+            for (long i = 0; i < frontier.points.cols(); ++i) {
+                auto p = frontier.points.col(i);
+                cv::circle(img, cv::Point(p[1], p[0]), 1, cv::Scalar(0, 255, 0), -1);
             }
         }
 

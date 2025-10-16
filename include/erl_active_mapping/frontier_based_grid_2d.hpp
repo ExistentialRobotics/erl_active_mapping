@@ -48,7 +48,7 @@ namespace erl::active_mapping::frontier_based {
         using LogOddMap = geometry::LogOddMap2D<Dtype>;
         using GridMapInfo = typename LogOddMap::GridMapInfo;
         using Matrix2X = Eigen::Matrix2X<Dtype>;
-        using Environment2D = env::Environment2D<Dtype>;
+        using Environment2D = env::Environment2D<Dtype, uint8_t>;
         using EnvSetting = typename Environment2D::Setting;
         using EnvCost = env::EuclideanDistanceCost<Dtype, 2>;
         using PlanningInterface = path_planning::SearchPlanningInterface<Dtype, 2>;
@@ -62,7 +62,7 @@ namespace erl::active_mapping::frontier_based {
             Dtype frontier_seen_ratio = 0.8f;  // replan when this ratio of frontier is seen
             Dtype goal_tolerance = 0.25f;      // in meters
             bool check_possible_collision = true;
-            long collision_check_window_size = 10;
+            std::size_t collision_check_window_size = 10;
 
             std::shared_ptr<typename LogOddMap::Setting> log_odd_map =
                 std::make_shared<typename LogOddMap::Setting>();
@@ -141,7 +141,7 @@ namespace erl::active_mapping::frontier_based {
         };
 
         struct Frontier {
-            std::vector<State> points;                // points (states) that make up the frontier
+            Eigen::Matrix2Xi points;                  // points (states) that make up the frontier
             std::vector<MetricState> goals{};         // goal states
             std::vector<std::size_t> goal_indices{};  // Indices of goals
             Dtype score = 0;                          // Score of the frontier
@@ -158,7 +158,7 @@ namespace erl::active_mapping::frontier_based {
         std::shared_ptr<EnvCost> m_env_cost_ = std::make_shared<EnvCost>();
         cv::Mat m_env_cost_map_;
         Path m_current_path_{};
-        long m_current_wp_idx_ = 0;
+        std::size_t m_current_wp_idx_ = 0;
 
     public:
         AgentFrontierBasedGrid2D(
@@ -204,18 +204,18 @@ namespace erl::active_mapping::frontier_based {
             return m_current_path_;
         }
 
-        [[nodiscard]] long
+        [[nodiscard]] std::size_t
         GetCurrentWpIndex() const {
             return m_current_wp_idx_;
         }
 
         void
         SetCurrentWpIndex(long idx) {
-            if (idx < 0 || idx >= m_current_path_.cols()) {
+            if (idx < 0 || static_cast<std::size_t>(idx) >= m_current_path_.size()) {
                 ERL_WARN("Invalid waypoint index: {}.", idx);
                 return;
             }
-            m_current_wp_idx_ = idx;
+            m_current_wp_idx_ = static_cast<std::size_t>(idx);
         }
 
         void
@@ -226,7 +226,7 @@ namespace erl::active_mapping::frontier_based {
         }
 
         [[nodiscard]] const Path &
-        Plan(const State &state) override {
+        Plan(const Pose &pose) override {
             m_current_wp_idx_ = 0;
 
             (void) ExtractFrontiers();
@@ -234,56 +234,63 @@ namespace erl::active_mapping::frontier_based {
 
             if (m_frontiers_.empty()) {
                 ERL_INFO("No frontier found.");
-                return RandomPlan(state);
+                return RandomPlan(pose);
             }
 
-            if (GetPathToBestFrontier(state, m_current_path_) >= 0) { return m_current_path_; }
+            if (GetPathToBestFrontier(pose.col(2), m_current_path_) >= 0) {
+                return m_current_path_;
+            }
 
-            (void) RandomPlan(state);
+            (void) RandomPlan(pose);
 
             return m_current_path_;
         }
 
         [[nodiscard]] const Path &
-        RandomPlan(const State &state) override {
+        RandomPlan(const Pose &pose) override {
             long trial = 0;
+            MetricState start;
+            start = pose.col(2);
             while (m_setting_->max_random_planning_trials < 0 ||
                    trial < m_setting_->max_random_planning_trials) {
                 trial++;
                 State goal = m_env_->SampleValidStates(1)[0];
                 auto planning_interface = std::make_shared<PlanningInterface>(
                     m_env_,
-                    state.metric,
+                    start,
                     goal.metric,
                     MetricState::Constant(m_setting_->goal_tolerance / std::sqrt(2.0f)),
                     static_cast<Dtype>(0.0f));
 
                 auto astar_output = Astar(planning_interface, m_setting_->astar).Plan();
                 if (astar_output->plan_records.empty()) { continue; }  // no path found
-                m_current_path_ = astar_output->plan_records[astar_output->latest_plan_itr].path;
-                if (m_current_path_.cols() > 0) { break; }  // path found
+                LoadToPath(
+                    astar_output->plan_records[astar_output->latest_plan_itr].path,
+                    m_current_path_);
+                if (!m_current_path_.empty()) { break; }  // path found
             }
 
-            if (m_current_path_.cols() == 0) {
+            if (m_current_path_.empty()) {
                 ERL_WARN("Failed to find a path to any frontier or random goal.");
             }
 
-            ERL_INFO("Generate a random path with {} waypoints.", m_current_path_.cols());
+            ERL_INFO("Generate a random path with {} waypoints.", m_current_path_.size());
             return m_current_path_;
         }
 
         [[nodiscard]] bool
-        ShouldReplan(const State &state) override {
-            for (long i = m_current_wp_idx_; i < m_current_path_.cols(); ++i) {
+        ShouldReplan(const Pose &pose) override {
+            auto p = pose.col(2);
+            for (std::size_t i = m_current_wp_idx_; i < m_current_path_.size(); ++i) {
                 // find the first waypoint that is close enough to the current state
-                Dtype dist = (m_current_path_.col(i) - state.metric).norm();
+                Dtype dist = (m_current_path_[i].col(2) - p).norm();
                 if (dist < m_setting_->goal_tolerance) {
                     m_current_wp_idx_ = i;
                     break;
                 }
             }
 
-            if (m_current_wp_idx_ + 1 >= m_current_path_.cols()) {
+            if (m_current_wp_idx_ + 1 >= m_current_path_.size()) {
                 // deviation? the plan is done? replan
                 ERL_INFO("Replan because the current path is done.");
                 return true;
@@ -292,11 +299,11 @@ namespace erl::active_mapping::frontier_based {
             if (m_setting_->check_possible_collision) {
                 UpdateEnv();
                 State wp_state;
-                const long imax = std::min(
+                const std::size_t imax = std::min(
                     m_current_wp_idx_ + m_setting_->collision_check_window_size,
-                    m_current_path_.cols());
-                for (long i = m_current_wp_idx_; i < imax; ++i) {
-                    wp_state.metric = m_current_path_.col(i);
+                    m_current_path_.size());
+                for (std::size_t i = m_current_wp_idx_; i < imax; ++i) {
+                    wp_state.metric = m_current_path_[i].col(2);
                     wp_state.grid = m_env_->MetricToGrid(wp_state.metric);
                     // check if any waypoint is in collision
                     if (!m_env_->IsValidState(wp_state)) {
@@ -306,11 +313,11 @@ namespace erl::active_mapping::frontier_based {
                 }
             }
 
-            MetricState goal = m_current_path_.template rightCols<1>();
+            MetricState goal = m_current_path_.back().template rightCols<1>();
 
             if (m_setting_->replan_strategy == ReplanStrategy::kGoalReached ||
                 m_best_frontier_index_ < 0) {
-                if ((state.metric - goal).norm() < m_setting_->goal_tolerance) {
+                if ((p - goal).norm() < m_setting_->goal_tolerance) {
                     ERL_INFO("Goal reached.");
                     return true;
                 }
@@ -326,8 +333,9 @@ namespace erl::active_mapping::frontier_based {
                     cv::getStructuringElement(cv::MorphShapes::MORPH_CROSS, cv::Size{3, 3}));
                 const Frontier &frontier = m_frontiers_[m_best_frontier_index_];
                 long n_free = 0;
-                for (const State &p: frontier.points) {
-                    if (free_mask.at<uint8_t>(p.grid[0], p.grid[1])) { n_free++; }
+                for (long i = 0; i < frontier.points.cols(); ++i) {
+                    auto point = frontier.points.col(i);
+                    if (free_mask.at<uint8_t>(point[0], point[1])) { n_free++; }
                 }
                 const Dtype th = m_setting_->frontier_seen_ratio;
                 if (static_cast<Dtype>(n_free) / static_cast<Dtype>(frontier.points.size()) > th) {
@@ -379,26 +387,19 @@ namespace erl::active_mapping::frontier_based {
 
                 // convert to metric frontier
                 Frontier frontier;
-                for (long i = 0; i < grid_frontier.cols(); ++i) {
-                    auto p = grid_frontier.col(i);
-                    frontier.points.emplace_back(
-                        Eigen::Vector2<Dtype>(
-                            m_grid_map_info_->GridToMeterAtDim(p[0], 0),
-                            m_grid_map_info_->GridToMeterAtDim(p[1], 1)),
-                        p);
-                }
+                frontier.points = grid_frontier;
 
                 // compute score
-                frontier.score = static_cast<Dtype>(frontier.points.size());
+                frontier.score = static_cast<Dtype>(frontier.points.cols());
 
                 // compute goals
                 if (f_setting.sample_goals) {
                     long n_goals = std::min(
                         static_cast<long>(
-                            f_setting.sampling_ratio * static_cast<Dtype>(frontier.points.size())),
+                            f_setting.sampling_ratio * static_cast<Dtype>(frontier.points.cols())),
                         f_setting.max_num_goals_per_frontier);
                     n_goals = std::max(n_goals, 1l);
-                    frontier.goal_indices.resize(frontier.points.size());
+                    frontier.goal_indices.resize(frontier.points.cols());
                     std::iota(frontier.goal_indices.begin(), frontier.goal_indices.end(), 0);
                     std::shuffle(
                         frontier.goal_indices.begin(),
@@ -406,12 +407,15 @@ namespace erl::active_mapping::frontier_based {
                         common::g_random_engine);
                     frontier.goal_indices.resize(n_goals);
                     for (auto &idx: frontier.goal_indices) {
-                        frontier.goals.emplace_back(frontier.points[idx].metric);
+                        auto p = frontier.points.col(idx);
+                        frontier.goals.emplace_back(
+                            Eigen::Vector2<Dtype>(
+                                m_grid_map_info_->GridToMeterAtDim(p[0], 0),
+                                m_grid_map_info_->GridToMeterAtDim(p[1], 1)));
                     }
                 } else {
-                    MetricState mean = MetricState::Zero();
-                    for (auto &pt: frontier.points) { mean += pt.metric; }
-                    mean /= static_cast<Dtype>(frontier.points.size());
+                    MetricState mean =
+                        m_grid_map_info_->GridToMeterForPoints(frontier.points).rowwise().mean();
                     frontier.goals.emplace_back(mean);
                 }
 
@@ -421,7 +425,7 @@ namespace erl::active_mapping::frontier_based {
         }
 
         long
-        GetPathToBestFrontier(const State &state, Path &path) {
+        GetPathToBestFrontier(const MetricState &start, Path &path) {
             m_best_frontier_index_ = -1;
 
             if (m_frontiers_.empty()) { return m_best_frontier_index_; }
@@ -477,7 +481,7 @@ namespace erl::active_mapping::frontier_based {
 
             auto planning_interface = std::make_shared<PlanningInterface>(
                 m_env_,
-                state.metric,
+                start,
                 goals,
                 std::vector<MetricState>{
                     MetricState::Constant(m_setting_->goal_tolerance / std::sqrt(2.0f))},
@@ -489,7 +493,7 @@ namespace erl::active_mapping::frontier_based {
                 auto astar_output = astar.Plan();
                 if (astar_output->plan_records.empty()) { return m_best_frontier_index_; }
                 auto &plan_record = astar_output->plan_records[astar_output->latest_plan_itr];
-                path = plan_record.path;
+                LoadToPath(plan_record.path, path);
                 m_best_frontier_index_ = goal_frontier_indices[plan_record.goal_index];
                 return m_best_frontier_index_;
             }
@@ -516,7 +520,7 @@ namespace erl::active_mapping::frontier_based {
                         best_goal_index = record.goal_index;
                     }
                 }
-                path = astar_output->plan_records[best_plan_itr].path;
+                LoadToPath(astar_output->plan_records[best_plan_itr].path, path);
                 m_best_frontier_index_ = goal_frontier_indices[best_goal_index];
                 return m_best_frontier_index_;
             }
@@ -535,7 +539,7 @@ namespace erl::active_mapping::frontier_based {
                     best_goal_index = record.goal_index;
                 }
             }
-            path = astar_output->plan_records[best_plan_itr].path;
+            LoadToPath(astar_output->plan_records[best_plan_itr].path, path);
             m_best_frontier_index_ = goal_frontier_indices[best_goal_index];
             return m_best_frontier_index_;
         }
@@ -544,6 +548,9 @@ namespace erl::active_mapping::frontier_based {
         void
         UpdateEnv() {
             if (m_env_outdated_) {
+                // if we call GetCleanedOccupiedMask instead, some obstacles not captured will be
+                // treated as free space. We want to be more conservative so that the generated path
+                // is safer and the robot is less likely to collide with unknown obstacles.
                 m_env_cost_map_ = 1 - m_log_odd_map_->GetCleanedFreeMask();
                 m_env_outdated_ = false;
 
@@ -552,6 +559,20 @@ namespace erl::active_mapping::frontier_based {
                     m_env_cost_map_,
                     m_setting_->env,
                     m_env_cost_);
+            }
+        }
+
+        void
+        LoadToPath(const Eigen::Matrix2X<Dtype> &plan_path, Path &path) {
+            path.clear();
+            path.reserve(plan_path.cols());
+            for (long i = 0; i < plan_path.cols(); ++i) {
+                auto p = plan_path.col(i);
+                Pose pose = Pose::Identity();
+                auto p_out = pose.col(2);
+                p_out[0] = p[0];
+                p_out[1] = p[1];
+                path.emplace_back(std::move(pose));
             }
         }
     };
