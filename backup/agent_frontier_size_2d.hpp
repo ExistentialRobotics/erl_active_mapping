@@ -40,28 +40,28 @@ namespace erl::active_mapping {
         std::shared_ptr<Setting> m_setting_ = nullptr;
 
     public:
-        explicit AgentFrontierSize2D(const std::shared_ptr<Setting>& setting)
+        explicit AgentFrontierSize2D(const std::shared_ptr<Setting> &setting)
             : m_setting_(setting) {}
 
         bool
         Plan(
             Eigen::Vector3d agent_pose,
-            const std::shared_ptr<geometry::LogOddMap2D>& log_odd_map,
-            Eigen::Vector3d& goal,
-            double& goal_score,
-            bool& random_goal,
-            Eigen::Matrix3Xd& path,
-            double& path_cost) override;
+            const std::shared_ptr<geometry::LogOddMap2D> &log_odd_map,
+            Eigen::Vector3d &goal,
+            double &goal_score,
+            bool &random_goal,
+            Eigen::Matrix3Xd &path,
+            double &path_cost) override;
 
     private:
         [[nodiscard]] std::vector<Eigen::Matrix2Xi>
-        GetGridFrontiers(const std::shared_ptr<geometry::LogOddMap2D>& log_odd_map) const;
+        GetGridFrontiers(const std::shared_ptr<geometry::LogOddMap2D> &log_odd_map) const;
 
         [[nodiscard]] std::pair<std::vector<double>, std::vector<Eigen::Vector2d>>
         GetMetricGoals(
-            const Eigen::Vector3d& agent_pose,
-            const std::shared_ptr<geometry::LogOddMap2D>& log_odd_map,
-            const std::vector<Eigen::Matrix2Xi>& grid_frontiers) const;
+            const Eigen::Vector3d &agent_pose,
+            const std::shared_ptr<geometry::LogOddMap2D> &log_odd_map,
+            const std::vector<Eigen::Matrix2Xi> &grid_frontiers) const;
     };
 }  // namespace erl::active_mapping
 
@@ -70,7 +70,7 @@ namespace YAML {
     template<>
     struct convert<erl::active_mapping::AgentFrontierSize2D::Setting::Frontier> {
         static Node
-        encode(const erl::active_mapping::AgentFrontierSize2D::Setting::Frontier& rhs) {
+        encode(const erl::active_mapping::AgentFrontierSize2D::Setting::Frontier &rhs) {
             Node node;
             node["clean_at_first"] = rhs.clean_at_first;
             node["approx_iters"] = rhs.approx_iters;
@@ -83,7 +83,7 @@ namespace YAML {
         }
 
         static bool
-        decode(const Node& node, erl::active_mapping::AgentFrontierSize2D::Setting::Frontier& rhs) {
+        decode(const Node &node, erl::active_mapping::AgentFrontierSize2D::Setting::Frontier &rhs) {
             if (!node.IsMap()) { return false; }
             rhs.clean_at_first = node["clean_at_first"].as<bool>();
             rhs.approx_iters = node["approx_iters"].as<int>();
@@ -99,7 +99,7 @@ namespace YAML {
     template<>
     struct convert<erl::active_mapping::AgentFrontierSize2D::Setting::Plan> {
         static Node
-        encode(const erl::active_mapping::AgentFrontierSize2D::Setting::Plan& rhs) {
+        encode(const erl::active_mapping::AgentFrontierSize2D::Setting::Plan &rhs) {
             Node node;
             node["strategy"] = rhs.strategy;
             node["max_retries"] = rhs.max_retries;
@@ -110,7 +110,7 @@ namespace YAML {
         }
 
         static bool
-        decode(const Node& node, erl::active_mapping::AgentFrontierSize2D::Setting::Plan& rhs) {
+        decode(const Node &node, erl::active_mapping::AgentFrontierSize2D::Setting::Plan &rhs) {
             if (!node.IsMap()) { return false; }
             rhs.strategy = node["strategy"].as<erl::active_mapping::PlanStrategy>();
             rhs.max_retries = node["max_retries"].as<int>();
@@ -125,7 +125,7 @@ namespace YAML {
     template<>
     struct convert<erl::active_mapping::AgentFrontierSize2D::Setting> {
         static Node
-        encode(const erl::active_mapping::AgentFrontierSize2D::Setting& rhs) {
+        encode(const erl::active_mapping::AgentFrontierSize2D::Setting &rhs) {
             Node node;
             node["random_seed"] = rhs.random_seed;
             node["frontier"] = rhs.frontier;
@@ -134,7 +134,7 @@ namespace YAML {
         }
 
         static bool
-        decode(const Node& node, erl::active_mapping::AgentFrontierSize2D::Setting& rhs) {
+        decode(const Node &node, erl::active_mapping::AgentFrontierSize2D::Setting &rhs) {
             if (!node.IsMap()) { return false; }
             rhs.random_seed = node["random_seed"].as<uint64_t>();
             rhs.frontier = node["frontier"]

@@ -34,14 +34,16 @@ namespace YAML {
                 case erl::active_mapping::PlanStrategy::kMaxScoreCostRatio:
                     return Node("kMaxScoreCostRatio");
                 default:
-                    throw std::runtime_error("Unknown plan strategy code: " + std::to_string(static_cast<int>(rhs)));
+                    throw std::runtime_error(
+                        "Unknown plan strategy code: " + std::to_string(static_cast<int>(rhs)));
             }
         }
 
         static bool
         decode(const Node &node, erl::active_mapping::PlanStrategy &rhs) {
             if (!node.IsScalar()) { return false; }
-            if (const std::string &strategy_name = node.as<std::string>(); strategy_name == "kMaxScore") {
+            if (const std::string &strategy_name = node.as<std::string>();
+                strategy_name == "kMaxScore") {
                 rhs = erl::active_mapping::PlanStrategy::kMaxScore;
             } else if (strategy_name == "kMinCost") {
                 rhs = erl::active_mapping::PlanStrategy::kMinCost;
@@ -66,14 +68,16 @@ namespace YAML {
                 case erl::active_mapping::ReplanStrategy::kGoalSeen:
                     return Node("kGoalSeen");
                 default:
-                    throw std::runtime_error("Unknown replan strategy code: " + std::to_string(static_cast<int>(rhs)));
+                    throw std::runtime_error(
+                        "Unknown replan strategy code: " + std::to_string(static_cast<int>(rhs)));
             }
         }
 
         static bool
         decode(const Node &node, erl::active_mapping::ReplanStrategy &rhs) {
             if (!node.IsScalar()) { return false; }
-            if (const std::string &strategy_name = node.as<std::string>(); strategy_name == "kGoalReached") {
+            if (const std::string &strategy_name = node.as<std::string>();
+                strategy_name == "kGoalReached") {
                 rhs = erl::active_mapping::ReplanStrategy::kGoalReached;
             } else if (strategy_name == "kScoreDropped") {
                 rhs = erl::active_mapping::ReplanStrategy::kScoreDropped;

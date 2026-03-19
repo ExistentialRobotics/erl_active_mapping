@@ -12,6 +12,6 @@ erl_dependencies = ["erl_cmake_tools", "erl_common", "erl_geometry", "erl_env", 
 build_type = "Release"
 version = "0.1.0"
 author = "Zhirui Dai"
-author_email = "zhdai@ucsd.edu"
+author_email = "daizhirui@hotmail.com"
 entry_points = { console_scripts = [] }
-license = "MIT"
+license = { file = "LICENSE" }

@@ -2,6 +2,7 @@
 
 #include "agent_base.hpp"
 
+#include "erl_common/enum_parse.hpp"
 #include "erl_common/random.hpp"
 #include "erl_env/cost.hpp"
 #include "erl_env/environment_2d.hpp"
@@ -25,6 +26,37 @@ namespace erl::active_mapping::frontier_based {
         kGoalReached = 1,
     };
 
+}  // namespace erl::active_mapping::frontier_based
+
+ERL_REFLECT_ENUM_SCHEMA(
+    erl::active_mapping::frontier_based::PlanStrategy,
+    3,
+    ERL_REFLECT_ENUM_MEMBER(
+        "kMaxScore",
+        erl::active_mapping::frontier_based::PlanStrategy::kMaxScore),
+    ERL_REFLECT_ENUM_MEMBER(
+        "kMinPathLength",
+        erl::active_mapping::frontier_based::PlanStrategy::kMinPathLength),
+    ERL_REFLECT_ENUM_MEMBER(
+        "kMaxScorePathLengthRatio",
+        erl::active_mapping::frontier_based::PlanStrategy::kMaxScorePathLengthRatio));
+
+ERL_PARSE_ENUM(erl::active_mapping::frontier_based::PlanStrategy, 3);
+
+ERL_REFLECT_ENUM_SCHEMA(
+    erl::active_mapping::frontier_based::ReplanStrategy,
+    2,
+    ERL_REFLECT_ENUM_MEMBER(
+        "kFrontierSeen",
+        erl::active_mapping::frontier_based::ReplanStrategy::kFrontierSeen),
+    ERL_REFLECT_ENUM_MEMBER(
+        "kGoalReached",
+        erl::active_mapping::frontier_based::ReplanStrategy::kGoalReached));
+
+ERL_PARSE_ENUM(erl::active_mapping::frontier_based::ReplanStrategy, 2);
+
+namespace erl::active_mapping::frontier_based {
+
     namespace grid_frontiers {
         struct GridFrontierSetting : public common::Yamlable<GridFrontierSetting> {
             bool clean_at_first = true;
@@ -34,6 +66,16 @@ namespace erl::active_mapping::frontier_based {
             bool sample_goals = true;
             float sampling_ratio = 0.1f;
             long max_num_goals_per_frontier = 5;
+
+            ERL_REFLECT_SCHEMA(
+                GridFrontierSetting,
+                ERL_REFLECT_MEMBER(GridFrontierSetting, clean_at_first),
+                ERL_REFLECT_MEMBER(GridFrontierSetting, approx_iters),
+                ERL_REFLECT_MEMBER(GridFrontierSetting, min_size),
+                ERL_REFLECT_MEMBER(GridFrontierSetting, max_num_frontiers),
+                ERL_REFLECT_MEMBER(GridFrontierSetting, sample_goals),
+                ERL_REFLECT_MEMBER(GridFrontierSetting, sampling_ratio),
+                ERL_REFLECT_MEMBER(GridFrontierSetting, max_num_goals_per_frontier));
         };
     }  // namespace grid_frontiers
 
@@ -77,67 +119,21 @@ namespace erl::active_mapping::frontier_based {
             std::shared_ptr<AstarSetting> astar = std::make_shared<AstarSetting>();
             long max_random_planning_trials = 100;
 
-            struct YamlConvertImpl {
-                static YAML::Node
-                encode(const Setting &setting) {
-                    YAML::Node node;
-                    ERL_YAML_SAVE_ENUM_ATTR(
-                        node,
-                        setting,
-                        plan_strategy,
-                        {{"kMaxScore", PlanStrategy::kMaxScore},
-                         {"kMinPathLength", PlanStrategy::kMinPathLength},
-                         {"kMaxScorePathLengthRatio", PlanStrategy::kMaxScorePathLengthRatio}});
-                    ERL_YAML_SAVE_ENUM_ATTR(
-                        node,
-                        setting,
-                        replan_strategy,
-                        {{"kFrontierSeen", ReplanStrategy::kFrontierSeen},
-                         {"kGoalReached", ReplanStrategy::kGoalReached}});
-                    ERL_YAML_SAVE_ATTR(node, setting, frontier_seen_ratio);
-                    ERL_YAML_SAVE_ATTR(node, setting, goal_tolerance);
-                    ERL_YAML_SAVE_ATTR(node, setting, check_possible_collision);
-                    ERL_YAML_SAVE_ATTR(node, setting, collision_check_window_size);
-                    ERL_YAML_SAVE_ATTR(node, setting, log_odd_map);
-                    ERL_YAML_SAVE_ATTR(node, setting, frontier);
-                    ERL_YAML_SAVE_ATTR(node, setting, env);
-                    ERL_YAML_SAVE_ATTR(node, setting, env_max_step_size);
-                    ERL_YAML_SAVE_ATTR(node, setting, env_allow_diagonal);
-                    ERL_YAML_SAVE_ATTR(node, setting, astar);
-                    ERL_YAML_SAVE_ATTR(node, setting, max_random_planning_trials);
-                    return node;
-                }
-
-                static bool
-                decode(const YAML::Node &node, Setting &setting) {
-                    if (!node.IsMap()) { return false; }
-                    ERL_YAML_LOAD_ENUM_ATTR(
-                        node,
-                        setting,
-                        plan_strategy,
-                        {{"kMaxScore", PlanStrategy::kMaxScore},
-                         {"kMinPathLength", PlanStrategy::kMinPathLength},
-                         {"kMaxScorePathLengthRatio", PlanStrategy::kMaxScorePathLengthRatio}});
-                    ERL_YAML_LOAD_ENUM_ATTR(
-                        node,
-                        setting,
-                        replan_strategy,
-                        {{"kFrontierSeen", ReplanStrategy::kFrontierSeen},
-                         {"kGoalReached", ReplanStrategy::kGoalReached}});
-                    ERL_YAML_LOAD_ATTR(node, setting, frontier_seen_ratio);
-                    ERL_YAML_LOAD_ATTR(node, setting, goal_tolerance);
-                    ERL_YAML_LOAD_ATTR(node, setting, check_possible_collision);
-                    ERL_YAML_LOAD_ATTR(node, setting, collision_check_window_size);
-                    if (!ERL_YAML_LOAD_ATTR(node, setting, log_odd_map)) { return false; }
-                    if (!ERL_YAML_LOAD_ATTR(node, setting, frontier)) { return false; }
-                    if (!ERL_YAML_LOAD_ATTR(node, setting, env)) { return false; }
-                    ERL_YAML_LOAD_ATTR(node, setting, env_max_step_size);
-                    ERL_YAML_LOAD_ATTR(node, setting, env_allow_diagonal);
-                    if (!ERL_YAML_LOAD_ATTR(node, setting, astar)) { return false; }
-                    ERL_YAML_LOAD_ATTR(node, setting, max_random_planning_trials);
-                    return true;
-                }
-            };
+            ERL_REFLECT_SCHEMA(
+                Setting,
+                ERL_REFLECT_MEMBER(Setting, plan_strategy),
+                ERL_REFLECT_MEMBER(Setting, replan_strategy),
+                ERL_REFLECT_MEMBER(Setting, frontier_seen_ratio),
+                ERL_REFLECT_MEMBER(Setting, goal_tolerance),
+                ERL_REFLECT_MEMBER(Setting, check_possible_collision),
+                ERL_REFLECT_MEMBER(Setting, collision_check_window_size),
+                ERL_REFLECT_MEMBER(Setting, log_odd_map),
+                ERL_REFLECT_MEMBER(Setting, frontier),
+                ERL_REFLECT_MEMBER(Setting, env),
+                ERL_REFLECT_MEMBER(Setting, env_max_step_size),
+                ERL_REFLECT_MEMBER(Setting, env_allow_diagonal),
+                ERL_REFLECT_MEMBER(Setting, astar),
+                ERL_REFLECT_MEMBER(Setting, max_random_planning_trials));
         };
 
         struct Frontier {
@@ -581,24 +577,3 @@ namespace erl::active_mapping::frontier_based {
     extern template class AgentFrontierBasedGrid2D<double>;
 
 }  // namespace erl::active_mapping::frontier_based
-
-template<>
-struct YAML::convert<erl::active_mapping::frontier_based::AgentFrontierBasedGrid2D<float>::Setting>
-    : public erl::active_mapping::frontier_based::AgentFrontierBasedGrid2D<
-          float>::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::active_mapping::frontier_based::AgentFrontierBasedGrid2D<double>::Setting>
-    : public erl::active_mapping::frontier_based::AgentFrontierBasedGrid2D<
-          double>::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::active_mapping::frontier_based::grid_frontiers::GridFrontierSetting> {
-    static Node
-    encode(const erl::active_mapping::frontier_based::grid_frontiers::GridFrontierSetting &setting);
-
-    static bool
-    decode(
-        const YAML::Node &node,
-        erl::active_mapping::frontier_based::grid_frontiers::GridFrontierSetting &setting);
-};
