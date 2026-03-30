@@ -15,10 +15,19 @@ namespace erl::active_mapping {
 
         virtual ~AgentBase() = default;
 
+        /**
+         * Perform one step of the agent with the sensor pose and observation. This function is
+         * responsible for updating the agent's internal state based on the new information received
+         * from the environment.
+         * @param pose the current pose of the agent/sensor.
+         * @param observation the current observation of the agent/sensor.
+         */
         virtual void
         Step(const Pose &pose, const Observation &observation) = 0;
 
         /**
+         * Plan a path for exploration based on the current pose of the agent/sensor. This function
+         * should return a sequence of states representing the planned path for exploration.
          * @param pose the current pose of the agent/sensor.
          * @return a sequence of states representing the planned path for exploration.
          */
@@ -29,7 +38,8 @@ namespace erl::active_mapping {
         RandomPlan(const Pose &pose) = 0;
 
         /**
-         *
+         * Determine if the agent should replan based on its internal criteria.
+         * @param pose the current pose of the agent/sensor.
          * @return true if the agent should replan based on its internal criteria, false
          * otherwise.
          */

@@ -148,6 +148,7 @@ namespace erl::active_mapping::frontier_based {
         std::shared_ptr<GridMapInfo> m_grid_map_info_;
         std::shared_ptr<LogOddMap> m_log_odd_map_;
         std::vector<Frontier> m_frontiers_;
+        bool m_external_frontiers_ = false;
         long m_best_frontier_index_ = 0;
         std::shared_ptr<Environment2D> m_env_;
         bool m_env_outdated_ = true;
@@ -214,6 +215,79 @@ namespace erl::active_mapping::frontier_based {
             m_current_wp_idx_ = static_cast<std::size_t>(idx);
         }
 
+        [[nodiscard]] bool
+        GetEnvOutdated() const {
+            return m_env_outdated_;
+        }
+
+        void
+        SetEnvOutdated(bool outdated) {
+            m_env_outdated_ = outdated;
+        }
+
+        void
+        SetFrontiers(std::vector<Frontier> frontiers) {
+
+            const grid_frontiers::GridFrontierSetting &f_setting = m_setting_->frontier;
+
+            // sort frontiers by size
+            std::sort(frontiers.begin(), frontiers.end(), [](const Frontier &a, const Frontier &b) {
+                return a.points.cols() > b.points.cols();
+            });
+            // remove small frontiers
+            auto it = std::find_if(  // the first frontier that is smaller than the threshold
+                frontiers.begin(),
+                frontiers.end(),
+                [&](const Frontier &frontier) {
+                    return frontier.points.cols() < f_setting.min_size;
+                });
+            frontiers.erase(it, frontiers.end());
+            // keep only the largest N frontiers
+            if (frontiers.size() > f_setting.max_num_frontiers) {
+                frontiers.resize(f_setting.max_num_frontiers);
+            }
+            if (frontiers.empty()) {
+                ERL_INFO("No frontier loaded after filtering.");
+                return;
+            }
+
+            // sample goals for each frontier
+            for (auto &frontier: frontiers) {
+                if (f_setting.sample_goals) {
+                    long n_goals = std::min(
+                        static_cast<long>(
+                            f_setting.sampling_ratio * static_cast<Dtype>(frontier.points.cols())),
+                        f_setting.max_num_goals_per_frontier);
+                    n_goals = std::max(n_goals, 1l);
+                    frontier.goal_indices.resize(frontier.points.cols());
+                    std::iota(frontier.goal_indices.begin(), frontier.goal_indices.end(), 0);
+                    if (n_goals < frontier.points.cols()) {
+                        std::shuffle(
+                            frontier.goal_indices.begin(),
+                            frontier.goal_indices.end(),
+                            common::g_random_engine);
+                        frontier.goal_indices.resize(n_goals);
+                    }
+                    for (auto &idx: frontier.goal_indices) {
+                        auto p = frontier.points.col(idx);
+                        frontier.goals.emplace_back(
+                            Eigen::Vector2<Dtype>(
+                                m_grid_map_info_->GridToMeterAtDim(p[0], 0),
+                                m_grid_map_info_->GridToMeterAtDim(p[1], 1)));
+                    }
+                } else {
+                    MetricState mean =
+                        m_grid_map_info_->GridToMeterForPoints(frontier.points).rowwise().mean();
+                    frontier.goals.emplace_back(mean);
+                    frontier.goal_indices.emplace_back(0);  // dummy index
+                }
+            }
+
+            m_frontiers_ = std::move(frontiers);
+            m_external_frontiers_ = true;
+            ERL_INFO("Loaded {} frontiers after processing.", m_frontiers_.size());
+        }
+
         void
         Step(const Pose &pose, const Observation &observation) override {
             Dtype theta = std::atan2(pose(1, 0), pose(0, 0));
@@ -225,11 +299,20 @@ namespace erl::active_mapping::frontier_based {
         Plan(const Pose &pose) override {
             m_current_wp_idx_ = 0;
 
-            (void) ExtractFrontiers();
+            if (m_external_frontiers_) {
+                m_external_frontiers_ = false;
+            } else {
+                (void) ExtractFrontiers();
+            }
             UpdateEnv();
 
             if (m_frontiers_.empty()) {
                 ERL_INFO("No frontier found.");
+                if (m_setting_->max_random_planning_trials == 0) {
+                    ERL_INFO("Random planning is disabled, return empty path.");
+                    m_current_path_.clear();
+                    return m_current_path_;
+                }
                 return RandomPlan(pose);
             }
 
@@ -247,6 +330,7 @@ namespace erl::active_mapping::frontier_based {
             long trial = 0;
             MetricState start;
             start = pose.col(2);
+            m_current_path_.clear();
             while (m_setting_->max_random_planning_trials < 0 ||
                    trial < m_setting_->max_random_planning_trials) {
                 trial++;
@@ -362,6 +446,9 @@ namespace erl::active_mapping::frontier_based {
 
             const std::size_t num_frontiers = grid_frontiers.size();
 
+            m_frontiers_.clear();
+            if (num_frontiers == 0) { return m_frontiers_; }
+
             std::priority_queue<
                 std::pair<std::size_t, long>,               // element
                 std::vector<std::pair<std::size_t, long>>,  // sequence
@@ -373,9 +460,6 @@ namespace erl::active_mapping::frontier_based {
                 if (frontier_size < f_setting.min_size) { continue; }
                 frontier_indices.emplace(i, frontier_size);
             }
-
-            m_frontiers_.clear();
-            if (frontier_indices.empty()) { return m_frontiers_; }
 
             while (m_frontiers_.size() < f_setting.max_num_frontiers && !frontier_indices.empty()) {
                 Eigen::Matrix2Xi &grid_frontier = grid_frontiers[frontier_indices.top().first];
@@ -397,11 +481,13 @@ namespace erl::active_mapping::frontier_based {
                     n_goals = std::max(n_goals, 1l);
                     frontier.goal_indices.resize(frontier.points.cols());
                     std::iota(frontier.goal_indices.begin(), frontier.goal_indices.end(), 0);
-                    std::shuffle(
-                        frontier.goal_indices.begin(),
-                        frontier.goal_indices.end(),
-                        common::g_random_engine);
-                    frontier.goal_indices.resize(n_goals);
+                    if (n_goals < frontier.points.cols()) {
+                        std::shuffle(
+                            frontier.goal_indices.begin(),
+                            frontier.goal_indices.end(),
+                            common::g_random_engine);
+                        frontier.goal_indices.resize(n_goals);
+                    }
                     for (auto &idx: frontier.goal_indices) {
                         auto p = frontier.points.col(idx);
                         frontier.goals.emplace_back(
