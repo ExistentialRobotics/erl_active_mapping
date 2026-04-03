@@ -565,8 +565,7 @@ namespace erl::active_mapping::frontier_based {
                 m_env_,
                 start,
                 goals,
-                std::vector<MetricState>{
-                    MetricState::Constant(m_setting_->goal_tolerance / std::sqrt(2.0f))},
+                std::vector<MetricState>{MetricState::Constant(m_setting_->goal_tolerance)},
                 terminal_costs);
 
             Astar astar(planning_interface, m_setting_->astar);
