@@ -512,6 +512,13 @@ namespace erl::active_mapping::frontier_based {
 
             if (m_frontiers_.empty()) { return m_best_frontier_index_; }
 
+            ERL_INFO(
+                "Plan to the best frontier with strategy {} from start ({}, {}) with {} frontiers.",
+                m_setting_->plan_strategy,
+                start[0],
+                start[1],
+                m_frontiers_.size());
+
             std::vector<MetricState> goals;
             std::vector<Dtype> terminal_costs;
             std::vector<long> goal_frontier_indices;
