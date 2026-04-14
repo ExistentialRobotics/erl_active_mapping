@@ -334,12 +334,13 @@ namespace erl::active_mapping::frontier_based {
             while (m_setting_->max_random_planning_trials < 0 ||
                    trial < m_setting_->max_random_planning_trials) {
                 trial++;
+                ERL_INFO("Random planning trial {}.", trial);
                 State goal = m_env_->SampleValidStates(1)[0];
                 auto planning_interface = std::make_shared<PlanningInterface>(
                     m_env_,
                     start,
                     goal.metric,
-                    MetricState::Constant(m_setting_->goal_tolerance / std::sqrt(2.0f)),
+                    MetricState::Constant(m_setting_->goal_tolerance),
                     static_cast<Dtype>(0.0f));
 
                 auto astar_output = Astar(planning_interface, m_setting_->astar).Plan();
@@ -526,45 +527,55 @@ namespace erl::active_mapping::frontier_based {
             terminal_costs.reserve(m_frontiers_.size());
             goal_frontier_indices.reserve(m_frontiers_.size());
 
-            switch (m_setting_->plan_strategy) {
-                case PlanStrategy::kMaxScore: {
-                    Dtype score = m_frontiers_[0].score;  // the first one has the largest score
-                    goals = m_frontiers_[0].goals;
-                    terminal_costs.resize(goals.size(), -score);
-                    goal_frontier_indices.resize(goals.size(), 0);
-                    // there might be other frontiers with the same max score
-                    for (std::size_t i = 1; i < m_frontiers_.size(); ++i) {
-                        const Frontier &frontier = m_frontiers_[i];
-                        if (frontier.score < score) { break; }  // frontier list is sorted
-                        goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
-                        terminal_costs.insert(terminal_costs.end(), frontier.goals.size(), -score);
-                        goal_frontier_indices.insert(
-                            goal_frontier_indices.end(),
-                            frontier.goals.size(),
-                            i);
-                    }
-                    break;
-                }
-                case PlanStrategy::kMinPathLength:
-                case PlanStrategy::kMaxScorePathLengthRatio: {
-                    for (std::size_t i = 0; i < m_frontiers_.size(); ++i) {
-                        const Frontier &frontier = m_frontiers_[i];
-                        goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
-                        terminal_costs.insert(
-                            terminal_costs.end(),
-                            frontier.goals.size(),
-                            -frontier.score);
-                        goal_frontier_indices.insert(
-                            goal_frontier_indices.end(),
-                            frontier.goals.size(),
-                            static_cast<long>(i));
-                    }
-                    break;
-                }
-                default:
-                    ERL_WARN("Unknown PlanStrategy.");
-                    return m_best_frontier_index_;
+            for (std::size_t i = 0; i < m_frontiers_.size(); ++i) {
+                const Frontier &frontier = m_frontiers_[i];
+                goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
+                terminal_costs.insert(terminal_costs.end(), frontier.goals.size(), -frontier.score);
+                goal_frontier_indices.insert(
+                    goal_frontier_indices.end(),
+                    frontier.goals.size(),
+                    static_cast<long>(i));
             }
+
+            // switch (m_setting_->plan_strategy) {
+            //     case PlanStrategy::kMaxScore: {
+            //         Dtype score = m_frontiers_[0].score;  // the first one has the largest score
+            //         goals = m_frontiers_[0].goals;
+            //         terminal_costs.resize(goals.size(), -score);
+            //         goal_frontier_indices.resize(goals.size(), 0);
+            //         // there might be other frontiers with the same max score
+            //         for (std::size_t i = 1; i < m_frontiers_.size(); ++i) {
+            //             const Frontier &frontier = m_frontiers_[i];
+            //             if (frontier.score < score) { break; }  // frontier list is sorted
+            //             goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
+            //             terminal_costs.insert(terminal_costs.end(), frontier.goals.size(), -score);
+            //             goal_frontier_indices.insert(
+            //                 goal_frontier_indices.end(),
+            //                 frontier.goals.size(),
+            //                 static_cast<long>(i));
+            //         }
+            //         break;
+            //     }
+            //     case PlanStrategy::kMinPathLength:
+            //     case PlanStrategy::kMaxScorePathLengthRatio: {
+            //         for (std::size_t i = 0; i < m_frontiers_.size(); ++i) {
+            //             const Frontier &frontier = m_frontiers_[i];
+            //             goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
+            //             terminal_costs.insert(
+            //                 terminal_costs.end(),
+            //                 frontier.goals.size(),
+            //                 -frontier.score);
+            //             goal_frontier_indices.insert(
+            //                 goal_frontier_indices.end(),
+            //                 frontier.goals.size(),
+            //                 static_cast<long>(i));
+            //         }
+            //         break;
+            //     }
+            //     default:
+            //         ERL_WARN("Unknown PlanStrategy.");
+            //         return m_best_frontier_index_;
+            // }
 
             if (goals.empty()) { return m_best_frontier_index_; }
 
