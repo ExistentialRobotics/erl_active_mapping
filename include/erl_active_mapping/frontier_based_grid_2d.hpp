@@ -11,6 +11,7 @@
 #include "erl_path_planning/heuristic.hpp"
 #include "erl_path_planning/search_planning_interface.hpp"
 
+#include <filesystem>
 #include <queue>
 
 namespace erl::active_mapping::frontier_based {
@@ -119,6 +120,9 @@ namespace erl::active_mapping::frontier_based {
             std::shared_ptr<AstarSetting> astar = std::make_shared<AstarSetting>();
             long max_random_planning_trials = 100;
 
+            bool debug = false;
+            std::string debug_log_dir = "logs/frontier_based_grid_2d_debug";
+
             ERL_REFLECT_SCHEMA(
                 Setting,
                 ERL_REFLECT_MEMBER(Setting, plan_strategy),
@@ -133,7 +137,9 @@ namespace erl::active_mapping::frontier_based {
                 ERL_REFLECT_MEMBER(Setting, env_max_step_size),
                 ERL_REFLECT_MEMBER(Setting, env_allow_diagonal),
                 ERL_REFLECT_MEMBER(Setting, astar),
-                ERL_REFLECT_MEMBER(Setting, max_random_planning_trials));
+                ERL_REFLECT_MEMBER(Setting, max_random_planning_trials),
+                ERL_REFLECT_MEMBER(Setting, debug),
+                ERL_REFLECT_MEMBER(Setting, debug_log_dir));
         };
 
         struct Frontier {
@@ -156,6 +162,7 @@ namespace erl::active_mapping::frontier_based {
         cv::Mat m_env_cost_map_;
         Path m_current_path_{};
         std::size_t m_current_wp_idx_ = 0;
+        std::size_t m_debug_plan_count_ = 0;
 
     public:
         AgentFrontierBasedGrid2D(
@@ -173,6 +180,9 @@ namespace erl::active_mapping::frontier_based {
                 m_setting_->env->SetGridMotionPrimitive(
                     m_setting_->env_max_step_size,
                     m_setting_->env_allow_diagonal);
+            }
+            if (m_setting_->debug) {
+                std::filesystem::create_directories(m_setting_->debug_log_dir);
             }
         }
 
@@ -314,6 +324,54 @@ namespace erl::active_mapping::frontier_based {
                     return m_current_path_;
                 }
                 return RandomPlan(pose);
+            }
+
+            if (m_setting_->debug) {
+                // draw the current map and frontiers for debugging
+                cv::Mat occ_map = m_log_odd_map_->GetOccupancyMap();
+                cv::Mat debug_img;
+                cv::cvtColor(occ_map, debug_img, cv::COLOR_GRAY2BGR);
+
+                // draw each frontier in a distinct color
+                for (std::size_t fi = 0; fi < m_frontiers_.size(); ++fi) {
+                    const auto &frontier = m_frontiers_[fi];
+                    // cycle through colors: red, green, blue, cyan, magenta, yellow
+                    static const cv::Scalar colors[] = {
+                        {0, 0, 255},
+                        {0, 255, 0},
+                        {255, 0, 0},
+                        {255, 255, 0},
+                        {255, 0, 255},
+                        {0, 255, 255}};
+                    const cv::Scalar &color = colors[fi % 6];
+                    for (long j = 0; j < frontier.points.cols(); ++j) {
+                        const int r = frontier.points(0, j);
+                        const int c = frontier.points(1, j);
+                        if (r >= 0 && r < debug_img.rows && c >= 0 && c < debug_img.cols) {
+                            debug_img.at<cv::Vec3b>(r, c) = cv::Vec3b(
+                                static_cast<uint8_t>(color[0]),
+                                static_cast<uint8_t>(color[1]),
+                                static_cast<uint8_t>(color[2]));
+                        }
+                    }
+                    // draw goal points as circles
+                    for (const auto &goal: frontier.goals) {
+                        const int gr = m_grid_map_info_->MeterToGridAtDim(goal[0], 0);
+                        const int gc = m_grid_map_info_->MeterToGridAtDim(goal[1], 1);
+                        cv::circle(debug_img, cv::Point(gc, gr), 3, color, -1);
+                    }
+                }
+
+                // draw agent position
+                const Eigen::Vector2<Dtype> agent_pos = pose.col(2);
+                const int ar = m_grid_map_info_->MeterToGridAtDim(agent_pos[0], 0);
+                const int ac = m_grid_map_info_->MeterToGridAtDim(agent_pos[1], 1);
+                cv::circle(debug_img, cv::Point(ac, ar), 5, cv::Scalar(0, 165, 255), -1);
+
+                const std::string filename = m_setting_->debug_log_dir + "/plan_" +
+                                             std::to_string(m_debug_plan_count_++) + ".png";
+                cv::imwrite(filename, debug_img);
+                ERL_INFO("Saved debug image: {}", filename);
             }
 
             if (GetPathToBestFrontier(pose.col(2), m_current_path_) >= 0) {
@@ -527,10 +585,60 @@ namespace erl::active_mapping::frontier_based {
             terminal_costs.reserve(m_frontiers_.size());
             goal_frontier_indices.reserve(m_frontiers_.size());
 
+            // switch (m_setting_->plan_strategy) {
+            //     case PlanStrategy::kMaxScore: {
+            //         Dtype score = m_frontiers_[0].score;  // the first one has the largest score
+            //         goals = m_frontiers_[0].goals;
+            //         terminal_costs.resize(goals.size(), -score);
+            //         goal_frontier_indices.resize(goals.size(), 0);
+            //         // there might be other frontiers with the same max score
+            //         for (std::size_t i = 1; i < m_frontiers_.size(); ++i) {
+            //             const Frontier &frontier = m_frontiers_[i];
+            //             if (frontier.score < score) { break; }  // frontier list is sorted
+            //             goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
+            //             terminal_costs.insert(terminal_costs.end(), frontier.goals.size(), -score);
+            //             goal_frontier_indices.insert(
+            //                 goal_frontier_indices.end(),
+            //                 frontier.goals.size(),
+            //                 i);
+            //         }
+            //         break;
+            //     }
+            //     case PlanStrategy::kMinPathLength:
+            //     case PlanStrategy::kMaxScorePathLengthRatio: {
+            //         for (std::size_t i = 0; i < m_frontiers_.size(); ++i) {
+            //             const Frontier &frontier = m_frontiers_[i];
+            //             goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
+            //             terminal_costs.insert(
+            //                 terminal_costs.end(),
+            //                 frontier.goals.size(),
+            //                 -frontier.score);
+            //             goal_frontier_indices.insert(
+            //                 goal_frontier_indices.end(),
+            //                 frontier.goals.size(),
+            //                 static_cast<long>(i));
+            //         }
+            //         break;
+            //     }
+            //     default:
+            //         ERL_WARN("Unknown PlanStrategy.");
+            //         return m_best_frontier_index_;
+            // }
+
             for (std::size_t i = 0; i < m_frontiers_.size(); ++i) {
                 const Frontier &frontier = m_frontiers_[i];
                 goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
-                terminal_costs.insert(terminal_costs.end(), frontier.goals.size(), -frontier.score);
+                // if planning strategy is to maximize score or score/path_length ratio, the
+                // terminal cost is negative score; if planning strategy is to minimize path length,
+                // the terminal cost is 0 since we only care about path length.
+                if (m_setting_->plan_strategy == PlanStrategy::kMinPathLength) {
+                    terminal_costs.insert(terminal_costs.end(), frontier.goals.size(), 0);
+                } else {
+                    terminal_costs.insert(
+                        terminal_costs.end(),
+                        frontier.goals.size(),
+                        -frontier.score);
+                }
                 goal_frontier_indices.insert(
                     goal_frontier_indices.end(),
                     frontier.goals.size(),
@@ -588,7 +696,7 @@ namespace erl::active_mapping::frontier_based {
 
             Astar astar(planning_interface, m_setting_->astar);
 
-            if (m_setting_->plan_strategy == PlanStrategy::kMaxScore) {
+            if (m_setting_->plan_strategy != PlanStrategy::kMaxScorePathLengthRatio) {
                 auto astar_output = astar.Plan();
                 if (astar_output->plan_records.empty()) { return m_best_frontier_index_; }
                 auto &plan_record = astar_output->plan_records[astar_output->latest_plan_itr];
@@ -597,7 +705,7 @@ namespace erl::active_mapping::frontier_based {
                 return m_best_frontier_index_;
             }
 
-            // find all reachable goals
+            /// find all reachable goals
             std::shared_ptr<typename Astar::Output_t> astar_output = astar.Plan();
             std::size_t n_goals_reached = astar_output->plan_records.size();
             while (true) {
@@ -607,22 +715,22 @@ namespace erl::active_mapping::frontier_based {
             }
             if (n_goals_reached == 0) { return m_best_frontier_index_; }  // no reachable goal
 
-            if (m_setting_->plan_strategy == PlanStrategy::kMinPathLength) {
-                long best_plan_itr = -1;
-                long best_goal_index = -1;
-                Dtype min_path_length = std::numeric_limits<Dtype>::max();
-                for (auto &[plan_itr, record]: astar_output->plan_records) {
-                    Dtype path_length = record.cost - terminal_costs[record.goal_index];
-                    if (path_length < min_path_length) {
-                        min_path_length = path_length;
-                        best_plan_itr = plan_itr;
-                        best_goal_index = record.goal_index;
-                    }
-                }
-                LoadToPath(astar_output->plan_records[best_plan_itr].path, path);
-                m_best_frontier_index_ = goal_frontier_indices[best_goal_index];
-                return m_best_frontier_index_;
-            }
+            // // PlanStrategy::kMaxScore: find the goal with the maximum score (i.e., minimum terminal cost)
+            // if (m_setting_->plan_strategy == PlanStrategy::kMaxScore) {
+            //     long best_plan_itr = -1;
+            //     long best_goal_index = -1;
+            //     Dtype max_score = -std::numeric_limits<Dtype>::max();
+            //     for (auto &[plan_itr, record]: astar_output->plan_records) {
+            //         if (-terminal_costs[record.goal_index] > max_score) {
+            //             max_score = -terminal_costs[record.goal_index];
+            //             best_plan_itr = plan_itr;
+            //             best_goal_index = record.goal_index;
+            //         }
+            //     }
+            //     LoadToPath(astar_output->plan_records[best_plan_itr].path, path);
+            //     m_best_frontier_index_ = goal_frontier_indices[best_goal_index];
+            //     return m_best_frontier_index_;
+            // }
 
             // PlanStrategy::kMaxScorePathLengthRatio
             long best_plan_itr = -1;
