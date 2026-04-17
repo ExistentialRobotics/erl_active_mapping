@@ -106,6 +106,11 @@ namespace erl::active_mapping::frontier_based {
             Dtype goal_tolerance = 0.25f;      // in meters
             bool check_possible_collision = true;
             std::size_t collision_check_window_size = 10;
+            /// If true, unknown cells are treated as free when building the planning
+            /// cost map (cost == 0 unless cell is confirmed occupied). If false
+            /// (default), unknown cells are treated as blocked, which is conservative
+            /// and keeps the robot from crossing unmapped space.
+            bool treat_unknown_as_free = false;
 
             std::shared_ptr<typename LogOddMap::Setting> log_odd_map =
                 std::make_shared<typename LogOddMap::Setting>();
@@ -131,6 +136,7 @@ namespace erl::active_mapping::frontier_based {
                 ERL_REFLECT_MEMBER(Setting, goal_tolerance),
                 ERL_REFLECT_MEMBER(Setting, check_possible_collision),
                 ERL_REFLECT_MEMBER(Setting, collision_check_window_size),
+                ERL_REFLECT_MEMBER(Setting, treat_unknown_as_free),
                 ERL_REFLECT_MEMBER(Setting, log_odd_map),
                 ERL_REFLECT_MEMBER(Setting, frontier),
                 ERL_REFLECT_MEMBER(Setting, env),
@@ -204,6 +210,11 @@ namespace erl::active_mapping::frontier_based {
         [[nodiscard]] long
         GetBestFrontierIndex() const {
             return m_best_frontier_index_;
+        }
+
+        [[nodiscard]] const cv::Mat &
+        GetEnvCostMap() const {
+            return m_env_cost_map_;
         }
 
         [[nodiscard]] const Path &
@@ -337,11 +348,14 @@ namespace erl::active_mapping::frontier_based {
         }
 
         void
-        SaveDebugInfo(const Pose &pose, bool success) {
+        SaveDebugInfo(
+            const Pose &pose,
+            bool success,
+            std::optional<Eigen::Vector2<Dtype>> goal_pose = std::nullopt) {
             if (!m_setting_->debug) { return; }
 
             // draw the current map and frontiers for debugging
-            cv::Mat occ_map = m_log_odd_map_->GetOccupancyMap();
+            cv::Mat occ_map = (1 - m_env_cost_map_) * 255;
             cv::Mat debug_img;
             cv::cvtColor(occ_map, debug_img, cv::COLOR_GRAY2BGR);
 
@@ -381,6 +395,14 @@ namespace erl::active_mapping::frontier_based {
             const int ac = m_grid_map_info_->MeterToGridAtDim(agent_pos[1], 1);
             cv::circle(debug_img, cv::Point(ac, ar), 5, cv::Scalar(0, 165, 255), -1);
 
+            // draw goal position if provided
+            if (goal_pose.has_value()) {
+                const Eigen::Vector2<Dtype> goal_pos = goal_pose->col(2);
+                const int gr = m_grid_map_info_->MeterToGridAtDim(goal_pos[0], 0);
+                const int gc = m_grid_map_info_->MeterToGridAtDim(goal_pos[1], 1);
+                cv::circle(debug_img, cv::Point(gc, gr), 5, cv::Scalar(255, 0, 255), -1);
+            }
+
             std::filesystem::path log_dir(m_setting_->debug_log_dir);
             if (success) {
                 log_dir /= "success";
@@ -389,7 +411,8 @@ namespace erl::active_mapping::frontier_based {
             }
             if (!std::filesystem::exists(log_dir)) { std::filesystem::create_directories(log_dir); }
 
-            const auto filename = (log_dir / (std::to_string(m_debug_plan_count_++) + ".png")).string();
+            const auto filename =
+                (log_dir / (std::to_string(m_debug_plan_count_++) + ".png")).string();
             cv::imwrite(filename, debug_img);
             ERL_INFO("Saved debug image: {}", filename);
         }
@@ -400,11 +423,12 @@ namespace erl::active_mapping::frontier_based {
             MetricState start;
             start = pose.col(2);
             m_current_path_.clear();
+            State goal;
             while (m_setting_->max_random_planning_trials < 0 ||
                    trial < m_setting_->max_random_planning_trials) {
                 trial++;
                 ERL_INFO("Random planning trial {}.", trial);
-                State goal = m_env_->SampleValidStates(1)[0];
+                goal = m_env_->SampleValidStates(1)[0];
                 auto planning_interface = std::make_shared<PlanningInterface>(
                     m_env_,
                     start,
@@ -425,6 +449,7 @@ namespace erl::active_mapping::frontier_based {
             }
 
             ERL_INFO("Generate a random path with {} waypoints.", m_current_path_.size());
+            SaveDebugInfo(pose, !m_current_path_.empty(), goal.metric);
             return m_current_path_;
         }
 
@@ -436,6 +461,12 @@ namespace erl::active_mapping::frontier_based {
                 Dtype dist = (m_current_path_[i].col(2) - p).norm();
                 if (dist < m_setting_->goal_tolerance) {
                     m_current_wp_idx_ = i;
+                    ERL_INFO(
+                        "Current waypoint index updated to {}/{} based on distance {:.3f} to the "
+                        "current state.",
+                        m_current_wp_idx_,
+                        m_current_path_.size(),
+                        dist);
                     break;
                 }
             }
@@ -607,8 +638,8 @@ namespace erl::active_mapping::frontier_based {
             //             const Frontier &frontier = m_frontiers_[i];
             //             if (frontier.score < score) { break; }  // frontier list is sorted
             //             goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
-            //             terminal_costs.insert(terminal_costs.end(), frontier.goals.size(), -score);
-            //             goal_frontier_indices.insert(
+            //             terminal_costs.insert(terminal_costs.end(), frontier.goals.size(),
+            //             -score); goal_frontier_indices.insert(
             //                 goal_frontier_indices.end(),
             //                 frontier.goals.size(),
             //                 i);
@@ -667,8 +698,8 @@ namespace erl::active_mapping::frontier_based {
             //             const Frontier &frontier = m_frontiers_[i];
             //             if (frontier.score < score) { break; }  // frontier list is sorted
             //             goals.insert(goals.end(), frontier.goals.begin(), frontier.goals.end());
-            //             terminal_costs.insert(terminal_costs.end(), frontier.goals.size(), -score);
-            //             goal_frontier_indices.insert(
+            //             terminal_costs.insert(terminal_costs.end(), frontier.goals.size(),
+            //             -score); goal_frontier_indices.insert(
             //                 goal_frontier_indices.end(),
             //                 frontier.goals.size(),
             //                 static_cast<long>(i));
@@ -726,8 +757,8 @@ namespace erl::active_mapping::frontier_based {
             }
             if (n_goals_reached == 0) { return m_best_frontier_index_; }  // no reachable goal
 
-            // // PlanStrategy::kMaxScore: find the goal with the maximum score (i.e., minimum terminal cost)
-            // if (m_setting_->plan_strategy == PlanStrategy::kMaxScore) {
+            // // PlanStrategy::kMaxScore: find the goal with the maximum score (i.e., minimum
+            // terminal cost) if (m_setting_->plan_strategy == PlanStrategy::kMaxScore) {
             //     long best_plan_itr = -1;
             //     long best_goal_index = -1;
             //     Dtype max_score = -std::numeric_limits<Dtype>::max();
@@ -766,10 +797,19 @@ namespace erl::active_mapping::frontier_based {
         void
         UpdateEnv() {
             if (m_env_outdated_) {
-                // if we call GetCleanedOccupiedMask instead, some obstacles not captured will be
-                // treated as free space. We want to be more conservative so that the generated path
-                // is safer and the robot is less likely to collide with unknown obstacles.
-                m_env_cost_map_ = 1 - m_log_odd_map_->GetCleanedFreeMask();
+                // Conservative default (treat_unknown_as_free == false): cost = 1 for
+                // anything not confirmed free (occupied OR unknown). This keeps the
+                // planner out of unmapped space.
+                //
+                // Optimistic mode (treat_unknown_as_free == true): cost = 1 only where
+                // the cell is confirmed occupied; unknown cells become free. Use when
+                // the caller trusts the frontier-side coverage or wants the robot to
+                // traverse sparsely-mapped space.
+                if (m_setting_->treat_unknown_as_free) {
+                    m_env_cost_map_ = m_log_odd_map_->GetCleanedOccupiedMask();
+                } else {
+                    m_env_cost_map_ = 1 - m_log_odd_map_->GetCleanedFreeMask();
+                }
                 m_env_outdated_ = false;
 
                 m_env_ = std::make_shared<Environment2D>(
